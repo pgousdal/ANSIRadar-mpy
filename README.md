@@ -55,8 +55,9 @@ for the complete setup.
 Run the repository checks from its root:
 
 ```sh
-python3 tests/test_standalone_dependencies.py
-python3 -m compileall -q tests
+python tests/test_standalone_dependencies.py
+python -m pytest tests/
+python -m compileall -q .
 git diff --check
 ```
 

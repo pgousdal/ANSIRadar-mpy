@@ -137,6 +137,17 @@ def radar_round(value):
     return int(math.floor(value + 0.5))
 
 
+def table_window(items, selected_index, max_rows):
+    """Return a bounded table slice and its first source index."""
+    if max_rows <= 0 or not items:
+        return [], 0
+
+    selected_index = max(0, min(selected_index, len(items) - 1))
+    max_start = max(0, len(items) - max_rows)
+    start = min(max(0, selected_index - max_rows // 2), max_start)
+    return items[start:start + max_rows], start
+
+
 def put(screen, row, column, text, colour_grid=None, colour=None,
         min_column=1, max_column=SCREEN_WIDTH):
     if (row < 0 or row >= SCREEN_HEIGHT or column < min_column or
@@ -387,9 +398,9 @@ def draw_screen(source, state):
         BRIGHT_CYAN,
     )
 
-    for row_offset in range(min(3, len(visible))):
+    table_items, table_start = table_window(visible, state["selected"], 3)
+    for row_offset, aircraft in enumerate(table_items):
         row = 17 + row_offset
-        aircraft = visible[row_offset]
         item = aircraft["item"]
         altitude = "GND" if is_ground(item) else value_text(item, "alt_baro")
         icao = str(item.get("hex", item.get("icao", "?")))[:6]
@@ -403,7 +414,8 @@ def draw_screen(source, state):
             icao,
             vertical_speed_text(item),
         )
-        if row_offset == state["selected"]:
+        aircraft_index = table_start + row_offset
+        if aircraft_index == state["selected"]:
             line = ">" + line[:78]
         put(
             screen,

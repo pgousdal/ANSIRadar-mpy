@@ -20,6 +20,8 @@ jobs:
       - name: Validate standalone door dependencies
         run: python tests/test_standalone_dependencies.py
       - name: Compile Python validation code
-        run: python -m compileall -q tests
+        run: python -m compileall -q .
+      - name: Run pytest suite
+        run: python -m pytest tests/
       - name: Check whitespace errors
         run: git diff --check

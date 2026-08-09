@@ -9,8 +9,9 @@ requires them.
 Run from the repository root:
 
 ```sh
-python3 tests/test_standalone_dependencies.py
-python3 -m compileall -q tests
+python tests/test_standalone_dependencies.py
+python -m pytest tests/
+python -m compileall -q .
 git diff --check
 ```
 
@@ -24,6 +25,9 @@ package. The dependency test parses it directly, which also avoids importing
 - Keep the door within its embedded-safe dependency budget.
 - Do not use the test environment as a substitute for a live BBS.
 - Update documentation and the changelog for user-visible repository changes.
+- TODO: add deployment configuration for receiver coordinates and the aircraft
+  data path as a separate feature; keep the current hard-coded deployment
+  contract unchanged until then.
 
 ## Releases
 
