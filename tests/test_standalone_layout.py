@@ -30,17 +30,16 @@ def test_output_source_is_ascii_and_screen_is_safe_area():
     values = constants()
     assert values["SCREEN_WIDTH"] == 79
     assert values["SCREEN_HEIGHT"] == 24
-    assert values["RADAR_TOP"] == 2
-    assert values["RADAR_BOTTOM"] == 13
-    assert values["RADAR_LEFT"] == 1
-    assert values["RADAR_RIGHT"] == 39
+    assert values["RADAR_PANEL_LEFT"] == 2
+    assert values["RADAR_PANEL_RIGHT"] == 39
+    assert values["RADAR_PANEL_TOP"] == 3
+    assert values["RADAR_PANEL_BOTTOM"] == 14
     assert values["DETAILS_LEFT"] == 41
     assert values["RADAR_DIVIDER"] == 40
-    assert values["RADAR_CENTER_COL"] == 25
-    assert values["RADAR_CENTER_ROW"] == 7.5
-    assert values["RADAR_CENTER_SCREEN_ROW"] == 8
-    assert values["RADAR_RADIUS_X"] == 13
-    assert values["RADAR_RADIUS_Y"] == 5.5
+    assert values["RADAR_RING_COUNT"] == 4
+    assert values["RADAR_RING_SAMPLES"] == 12
+    assert values["RADAR_PANEL_RIGHT"] - values["RADAR_PANEL_LEFT"] + 1 == 38
+    assert values["RADAR_PANEL_BOTTOM"] - values["RADAR_PANEL_TOP"] + 1 == 12
 
 
 def test_literal_put_rows_never_target_row_25_or_later():
@@ -90,9 +89,18 @@ def test_dashboard_geometry_and_clipping_are_explicit():
     assert 'put(screen, 1, 1, "+" + "-" * 77 + "+"' in source
     assert 'put(screen, 13, 1, "+" + "-" * 77 + "+"' in source
     assert 'put(screen, 21, 1, "+" + "-" * 77 + "+"' in source
-    assert "RADAR_LEFT, RADAR_RIGHT" in source
-    assert "label_max = RADAR_RIGHT - 2" in source
-    assert "label_max = RADAR_CENTER_COL + RADAR_RADIUS_X - 2" in source
+    assert "RADAR_PANEL_WIDTH = RADAR_PANEL_RIGHT - RADAR_PANEL_LEFT + 1" in source
+    assert "RADAR_PANEL_HEIGHT = RADAR_PANEL_BOTTOM - RADAR_PANEL_TOP + 1" in source
+    assert "RADAR_CENTER_X = RADAR_PANEL_LEFT + RADAR_PANEL_WIDTH / 2.0" in source
+    assert "RADAR_CENTER_Y = RADAR_PANEL_TOP + RADAR_PANEL_HEIGHT / 2.0" in source
+    assert "RADAR_RADIUS_X = RADAR_PANEL_WIDTH / 2.0 - 2.0" in source
+    assert "RADAR_RADIUS_Y = RADAR_PANEL_HEIGHT / 2.0 - 1.0" in source
+    assert "radar_put(screen, ring_row, ring_column" in source
+    assert "for ring_number in range(1, RADAR_RING_COUNT + 1)" in source
+    assert "ring_bearing = 360.0 * ring_sample / RADAR_RING_SAMPLES" in source
+    assert "label_max = RADAR_PANEL_RIGHT - 1" in source
+    assert "RADAR_CENTER_COL" not in source
+    assert "RADAR_CENTER_SCREEN_ROW" not in source
     assert "selected = visible[state[\"selected\"]] if visible else None" in source
     assert 'put(screen, 2, DETAILS_LEFT + 2, "SELECTED AIRCRAFT"' in source
     assert 'put(screen, 12, detail_column, "GROUND "' in source

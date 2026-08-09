@@ -16,17 +16,21 @@ EARTH_RADIUS_NM = 3440.065
 ESC = "\x1b["
 SCREEN_WIDTH = 79
 SCREEN_HEIGHT = 24
-RADAR_TOP = 2
-RADAR_BOTTOM = 13
-RADAR_LEFT = 1
-RADAR_RIGHT = 39
+RADAR_PANEL_LEFT = 2
+RADAR_PANEL_RIGHT = 39
+RADAR_PANEL_TOP = 3
+RADAR_PANEL_BOTTOM = 14
+RADAR_PANEL_WIDTH = RADAR_PANEL_RIGHT - RADAR_PANEL_LEFT + 1
+RADAR_PANEL_HEIGHT = RADAR_PANEL_BOTTOM - RADAR_PANEL_TOP + 1
+RADAR_CENTER_X = RADAR_PANEL_LEFT + RADAR_PANEL_WIDTH / 2.0
+RADAR_CENTER_Y = RADAR_PANEL_TOP + RADAR_PANEL_HEIGHT / 2.0
+RADAR_RADIUS_X = RADAR_PANEL_WIDTH / 2.0 - 2.0
+RADAR_RADIUS_Y = RADAR_PANEL_HEIGHT / 2.0 - 1.0
+RADAR_CENTER_ROW = int(round(RADAR_CENTER_Y))
+RADAR_RING_COUNT = 4
+RADAR_RING_SAMPLES = 12
 DETAILS_LEFT = 41
 RADAR_DIVIDER = 40
-RADAR_CENTER_COL = 25
-RADAR_CENTER_ROW = 7.5
-RADAR_CENTER_SCREEN_ROW = 8
-RADAR_RADIUS_X = 13
-RADAR_RADIUS_Y = 5.5
 
 # Keep terminal styling in one place so the screen remains readable in source.
 RESET = ESC + "0m"
@@ -121,10 +125,11 @@ def prepare_aircraft(source, range_nm, include_ground):
 
 
 def project(bearing, distance, range_nm):
+    """Project a range/bearing into the panel-derived radar ellipse."""
     angle = math.radians(bearing)
     fraction = distance / range_nm if range_nm else 0.0
-    column = int(round(RADAR_CENTER_COL + math.sin(angle) * RADAR_RADIUS_X * fraction))
-    row = int(round(RADAR_CENTER_ROW - math.cos(angle) * RADAR_RADIUS_Y * fraction))
+    column = int(round(RADAR_CENTER_X + math.sin(angle) * RADAR_RADIUS_X * fraction))
+    row = int(round(RADAR_CENTER_Y - math.cos(angle) * RADAR_RADIUS_Y * fraction))
     return row, column
 
 
@@ -139,6 +144,14 @@ def put(screen, row, column, text, colour_grid=None, colour=None,
     screen[row][start:start + len(text)] = list(text)
     if colour_grid is not None and colour is not None:
         colour_grid[row][start:start + len(text)] = [colour] * len(text)
+
+
+def radar_put(screen, row, column, text, colour_grid=None, colour=None):
+    """Draw a one-based radar coordinate inside the fixed panel."""
+    if (RADAR_PANEL_TOP <= row <= RADAR_PANEL_BOTTOM and
+            RADAR_PANEL_LEFT <= column <= RADAR_PANEL_RIGHT):
+        put(screen, row - 1, column, text, colour_grid, colour,
+            RADAR_PANEL_LEFT, RADAR_PANEL_RIGHT)
 
 
 def screen_output(screen, colours):
@@ -205,55 +218,67 @@ def draw_screen(source, state):
     put(screen, 1, 1, "+" + "-" * 77 + "+", colours, DIM_CYAN)
     put(screen, 13, 1, "+" + "-" * 77 + "+", colours, DIM_CYAN)
     put(screen, 21, 1, "+" + "-" * 77 + "+", colours, DIM_CYAN)
-    for scope_row in range(RADAR_TOP, RADAR_BOTTOM + 1):
-        put(screen, scope_row, RADAR_LEFT, "|", colours, DIM_CYAN)
-        put(screen, scope_row, RADAR_RIGHT, "|", colours, DIM_CYAN)
-        put(screen, scope_row, RADAR_DIVIDER, "|", colours, DIM_CYAN)
+    for scope_row in range(RADAR_PANEL_TOP, RADAR_PANEL_BOTTOM):
+        radar_put(screen, scope_row, RADAR_PANEL_LEFT, "|", colours, DIM_CYAN)
+        radar_put(screen, scope_row, RADAR_PANEL_RIGHT, "|", colours, DIM_CYAN)
+    for scope_row in range(RADAR_PANEL_TOP, RADAR_PANEL_BOTTOM + 1):
+        put(screen, scope_row - 1, RADAR_DIVIDER, "|", colours, DIM_CYAN)
 
-    # Four dotted elliptical rings fill the scope without crossing its divider.
-    for ring_fraction in (0.25, 0.5, 0.75, 1.0):
-        for ring_bearing in range(0, 360, 30):
+    # Rings are sampled from the panel-derived ellipse at equal intervals.
+    for ring_number in range(1, RADAR_RING_COUNT + 1):
+        ring_fraction = ring_number / float(RADAR_RING_COUNT)
+        for ring_sample in range(RADAR_RING_SAMPLES):
+            ring_bearing = 360.0 * ring_sample / RADAR_RING_SAMPLES
             ring_row, ring_column = project(
                 ring_bearing, state["range"] * ring_fraction, state["range"]
             )
-            put(screen, ring_row, ring_column, ".", colours, DIM_CYAN,
-                RADAR_LEFT, RADAR_RIGHT)
-    for cross_offset in range(-2, 3):
-        put(screen, RADAR_CENTER_SCREEN_ROW, RADAR_CENTER_COL + cross_offset * 2,
-            "+", colours, DIM_CYAN, RADAR_LEFT, RADAR_RIGHT)
-        put(screen, RADAR_CENTER_SCREEN_ROW + cross_offset, RADAR_CENTER_COL, "+",
-            colours, DIM_CYAN, RADAR_LEFT, RADAR_RIGHT)
+            radar_put(screen, ring_row, ring_column, ".", colours, DIM_CYAN)
+
+    crosshair_left = int(round(RADAR_CENTER_X - RADAR_RADIUS_X + 1.0))
+    crosshair_right = int(round(RADAR_CENTER_X + RADAR_RADIUS_X - 1.0))
+    crosshair_top = int(round(RADAR_CENTER_Y - RADAR_RADIUS_Y + 1.0))
+    crosshair_bottom = int(round(RADAR_CENTER_Y + RADAR_RADIUS_Y - 1.0))
+    for column in range(crosshair_left, crosshair_right + 1):
+        radar_put(screen, RADAR_CENTER_ROW, column, ".", colours, DIM_CYAN)
+    for row in range(crosshair_top, crosshair_bottom + 1):
+        radar_put(screen, row, int(round(RADAR_CENTER_X)), ".", colours, DIM_CYAN)
+    radar_put(screen, RADAR_CENTER_ROW, int(round(RADAR_CENTER_X)), "+",
+              colours, BRIGHT_CYAN)
 
     for aircraft_index, aircraft in enumerate(visible):
         row, column = project(aircraft["bearing"], aircraft["distance"], state["range"])
-        if (row, column) in ((RADAR_CENTER_SCREEN_ROW, RADAR_CENTER_COL),
-                             (RADAR_CENTER_SCREEN_ROW - int(RADAR_RADIUS_Y), RADAR_CENTER_COL),
-                             (RADAR_CENTER_SCREEN_ROW + int(RADAR_RADIUS_Y), RADAR_CENTER_COL),
-                             (RADAR_CENTER_SCREEN_ROW, RADAR_CENTER_COL - RADAR_RADIUS_X),
-                             (RADAR_CENTER_SCREEN_ROW, RADAR_CENTER_COL + RADAR_RADIUS_X)):
+        cardinal_points = (
+            (RADAR_CENTER_ROW, int(round(RADAR_CENTER_X))),
+            (int(round(RADAR_CENTER_Y - RADAR_RADIUS_Y)), int(round(RADAR_CENTER_X))),
+            (int(round(RADAR_CENTER_Y + RADAR_RADIUS_Y)), int(round(RADAR_CENTER_X))),
+            (RADAR_CENTER_ROW, int(round(RADAR_CENTER_X - RADAR_RADIUS_X))),
+            (RADAR_CENTER_ROW, int(round(RADAR_CENTER_X + RADAR_RADIUS_X))),
+        )
+        if (row, column) in cardinal_points:
             column += 1
         glyph = "@" if aircraft_index == state["selected"] else "*"
         glyph_colour = YELLOW if aircraft_index == state["selected"] else WHITE
-        put(screen, row, column, glyph, colours, glyph_colour, RADAR_LEFT, RADAR_RIGHT)
-        if state["labels"] and RADAR_TOP <= row <= RADAR_BOTTOM:
-            label_max = RADAR_RIGHT - 2
-            if row == RADAR_CENTER_SCREEN_ROW and column < RADAR_CENTER_COL + RADAR_RADIUS_X:
-                label_max = RADAR_CENTER_COL + RADAR_RADIUS_X - 2
-            put(screen, row, column + 2, aircraft["name"][:8], colours,
+        radar_put(screen, row, column, glyph, colours, glyph_colour)
+        if state["labels"] and RADAR_PANEL_TOP <= row <= RADAR_PANEL_BOTTOM:
+            label_max = RADAR_PANEL_RIGHT - 1
+            east_cardinal = int(round(RADAR_CENTER_X + RADAR_RADIUS_X))
+            if row == RADAR_CENTER_ROW and column < east_cardinal:
+                label_max = east_cardinal - 2
+            put(screen, row - 1, column + 2, aircraft["name"][:8], colours,
                 YELLOW if aircraft_index == state["selected"] else CYAN,
-                RADAR_LEFT + 1, label_max)
+                RADAR_PANEL_LEFT + 1, label_max)
 
     # Restore cardinal markers if a nearby callsign label crossed one.
-    put(screen, RADAR_CENTER_SCREEN_ROW, RADAR_CENTER_COL, "+", colours, BRIGHT_CYAN,
-        RADAR_LEFT, RADAR_RIGHT)
-    put(screen, RADAR_TOP, RADAR_CENTER_COL, "N",
-        colours, BRIGHT_CYAN, RADAR_LEFT, RADAR_RIGHT)
-    put(screen, RADAR_CENTER_SCREEN_ROW, RADAR_CENTER_COL + RADAR_RADIUS_X, "E",
-        colours, BRIGHT_CYAN, RADAR_LEFT, RADAR_RIGHT)
-    put(screen, RADAR_BOTTOM, RADAR_CENTER_COL, "S",
-        colours, BRIGHT_CYAN, RADAR_LEFT, RADAR_RIGHT)
-    put(screen, RADAR_CENTER_SCREEN_ROW, RADAR_CENTER_COL - RADAR_RADIUS_X, "W",
-        colours, BRIGHT_CYAN, RADAR_LEFT, RADAR_RIGHT)
+    radar_put(screen, int(round(RADAR_CENTER_Y - RADAR_RADIUS_Y)),
+              int(round(RADAR_CENTER_X)), "N", colours, BRIGHT_CYAN)
+    radar_put(screen, RADAR_CENTER_ROW,
+              int(round(RADAR_CENTER_X + RADAR_RADIUS_X)), "E",
+              colours, BRIGHT_CYAN)
+    radar_put(screen, int(round(RADAR_CENTER_Y + RADAR_RADIUS_Y)),
+              int(round(RADAR_CENTER_X)), "S", colours, BRIGHT_CYAN)
+    radar_put(screen, RADAR_CENTER_ROW,
+              int(round(RADAR_CENTER_X - RADAR_RADIUS_X)), "W",
+              colours, BRIGHT_CYAN)
 
     selected = visible[state["selected"]] if visible else None
     put(screen, 2, DETAILS_LEFT + 2, "SELECTED AIRCRAFT", colours, CYAN)
