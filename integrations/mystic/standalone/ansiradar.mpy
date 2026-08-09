@@ -17,20 +17,20 @@ ESC = "\x1b["
 SCREEN_WIDTH = 79
 SCREEN_HEIGHT = 24
 RADAR_PANEL_LEFT = 2
-RADAR_PANEL_RIGHT = 39
+RADAR_PANEL_RIGHT = 58
 RADAR_PANEL_TOP = 3
-RADAR_PANEL_BOTTOM = 14
+RADAR_PANEL_BOTTOM = 15
 RADAR_PANEL_WIDTH = RADAR_PANEL_RIGHT - RADAR_PANEL_LEFT + 1
 RADAR_PANEL_HEIGHT = RADAR_PANEL_BOTTOM - RADAR_PANEL_TOP + 1
 RADAR_CENTER_X = RADAR_PANEL_LEFT + RADAR_PANEL_WIDTH / 2.0
 RADAR_CENTER_Y = RADAR_PANEL_TOP + (RADAR_PANEL_HEIGHT - 1) / 2.0
-RADAR_RADIUS_X = RADAR_PANEL_WIDTH / 2.0 - 2.0
-RADAR_RADIUS_Y = (RADAR_PANEL_HEIGHT - 1) / 2.0
+RADAR_RADIUS_X = RADAR_PANEL_WIDTH / 2.0 - 0.75
+RADAR_RADIUS_Y = (RADAR_PANEL_HEIGHT - 1) / 2.0 - 0.35
 RADAR_CENTER_ROW = int(math.floor(RADAR_CENTER_Y + 0.5))
 RADAR_RING_COUNT = 4
-RADAR_RING_SAMPLES = 12
-DETAILS_LEFT = 41
-RADAR_DIVIDER = 40
+RADAR_RING_SAMPLES = 72
+DETAILS_LEFT = 60
+RADAR_DIVIDER = 59
 
 # Keep terminal styling in one place so the screen remains readable in source.
 RESET = ESC + "0m"
@@ -213,135 +213,239 @@ def draw_screen(source, state):
     screen = [list(" " * SCREEN_WIDTH) for unused in range(SCREEN_HEIGHT)]
     colours = [[None] * SCREEN_WIDTH for unused in range(SCREEN_HEIGHT)]
 
+    # Header
     put(screen, 0, 2, "ANSIRADAR / MYSTIC", colours, BRIGHT_CYAN)
-    put(screen, 0, 24, "RANGE %3d NM" % state["range"], colours, BRIGHT_CYAN)
-    aircraft_count = str(len(visible))[:3]
-    put(screen, 0, 39, "AIRCRAFT %3s" % aircraft_count, colours, BRIGHT_CYAN)
-    put(screen, 0, 54, "SOURCE FILE", colours, BRIGHT_CYAN)
-    put(screen, 0, 68, "MODE LIVE", colours, BRIGHT_CYAN)
+    put(screen, 0, 23, "RANGE %3d NM" % state["range"], colours, WHITE)
+    put(screen, 0, 38, "AC %2d" % len(visible), colours, WHITE)
+    put(screen, 0, 46, "SRC FILE", colours, WHITE)
+    put(screen, 0, 57, "MODE LIVE", colours, CYAN)
+    put(screen, 0, 69, time.strftime("%H:%M:%S"), colours, WHITE)
+
+    # Full-width separators. The main radar/details area gets one extra row.
     put(screen, 1, 1, "+" + "-" * 77 + "+", colours, DIM_CYAN)
-    put(screen, 13, 1, "+" + "-" * 77 + "+", colours, DIM_CYAN)
+    put(screen, 15, 1, "+" + "-" * 77 + "+", colours, DIM_CYAN)
     put(screen, 21, 1, "+" + "-" * 77 + "+", colours, DIM_CYAN)
-    for scope_row in range(RADAR_PANEL_TOP, RADAR_PANEL_BOTTOM):
+
+    # Radar box and divider.
+    for scope_row in range(RADAR_PANEL_TOP, RADAR_PANEL_BOTTOM + 1):
         radar_put(screen, scope_row, RADAR_PANEL_LEFT, "|", colours, DIM_CYAN)
         radar_put(screen, scope_row, RADAR_PANEL_RIGHT, "|", colours, DIM_CYAN)
-    for scope_row in range(RADAR_PANEL_TOP, RADAR_PANEL_BOTTOM + 1):
         put(screen, scope_row - 1, RADAR_DIVIDER, "|", colours, DIM_CYAN)
 
-    # Rings are sampled from the panel-derived ellipse at equal intervals.
+    center_col = radar_round(RADAR_CENTER_X)
+    center_row = RADAR_CENTER_ROW
+
+    # Keep N/E/S/W one cell clear of the visual walls.
+    outer_top = radar_round(RADAR_CENTER_Y - RADAR_RADIUS_Y)
+    outer_bottom = radar_round(RADAR_CENTER_Y + RADAR_RADIUS_Y)
+    outer_left = radar_round(RADAR_CENTER_X - RADAR_RADIUS_X)
+    outer_right = radar_round(RADAR_CENTER_X + RADAR_RADIUS_X)
+
+    north_row = max(RADAR_PANEL_TOP + 1, outer_top + 1)
+    south_row = min(RADAR_PANEL_BOTTOM - 1, outer_bottom - 1)
+    west_col = max(RADAR_PANEL_LEFT + 2, outer_left + 2)
+    east_col = min(RADAR_PANEL_RIGHT - 2, outer_right - 2)
+
+    # Dotted range rings, now much denser/smoother.
     for ring_number in range(1, RADAR_RING_COUNT + 1):
         ring_fraction = ring_number / float(RADAR_RING_COUNT)
         for ring_sample in range(RADAR_RING_SAMPLES):
             ring_bearing = 360.0 * ring_sample / RADAR_RING_SAMPLES
             ring_row, ring_column = project(
-                ring_bearing, state["range"] * ring_fraction, state["range"]
+                ring_bearing,
+                state["range"] * ring_fraction,
+                state["range"],
             )
             radar_put(screen, ring_row, ring_column, ".", colours, DIM_CYAN)
 
-    crosshair_left = radar_round(RADAR_CENTER_X - RADAR_RADIUS_X + 1.0)
-    crosshair_right = radar_round(RADAR_CENTER_X + RADAR_RADIUS_X - 1.0)
-    crosshair_top = radar_round(RADAR_CENTER_Y - RADAR_RADIUS_Y + 1.0)
-    crosshair_bottom = radar_round(RADAR_CENTER_Y + RADAR_RADIUS_Y - 1.0)
-    for column in range(crosshair_left, crosshair_right + 1):
-        radar_put(screen, RADAR_CENTER_ROW, column, ".", colours, DIM_CYAN)
-    for row in range(crosshair_top, crosshair_bottom + 1):
-        radar_put(screen, row, radar_round(RADAR_CENTER_X), ".", colours, DIM_CYAN)
-    radar_put(screen, RADAR_CENTER_ROW, radar_round(RADAR_CENTER_X), "+",
-              colours, BRIGHT_CYAN)
-
-    for aircraft_index, aircraft in enumerate(visible):
-        row, column = project(aircraft["bearing"], aircraft["distance"], state["range"])
-        cardinal_points = (
-            (RADAR_CENTER_ROW, radar_round(RADAR_CENTER_X)),
-            (radar_round(RADAR_CENTER_Y - RADAR_RADIUS_Y), radar_round(RADAR_CENTER_X)),
-            (radar_round(RADAR_CENTER_Y + RADAR_RADIUS_Y), radar_round(RADAR_CENTER_X)),
-            (RADAR_CENTER_ROW, radar_round(RADAR_CENTER_X - RADAR_RADIUS_X)),
-            (RADAR_CENTER_ROW, radar_round(RADAR_CENTER_X + RADAR_RADIUS_X)),
+        # Range label around the upper-right quadrant of each ring.
+        label_bearing = 48.0
+        label_row, label_col = project(
+            label_bearing,
+            state["range"] * ring_fraction,
+            state["range"],
         )
-        if (row, column) in cardinal_points:
+        ring_nm = int(round(state["range"] * ring_fraction))
+        label = str(ring_nm)
+        if label_col + len(label) < east_col:
+            put(
+                screen, label_row - 1, label_col + 1, label,
+                colours, CYAN,
+                RADAR_PANEL_LEFT + 1, RADAR_PANEL_RIGHT - 1
+            )
+
+    # Twelve outer-ring ticks.
+    for tick_bearing in range(0, 360, 30):
+        tick_row, tick_col = project(
+            float(tick_bearing), float(state["range"]), float(state["range"])
+        )
+        radar_put(screen, tick_row, tick_col, "+", colours, CYAN)
+
+    # Subtle sweep line. It advances only on normal screen refreshes.
+    sweep_angle = math.radians(state.get("sweep_deg", 0.0))
+    sweep_steps = 18
+    for step in range(1, sweep_steps):
+        fraction = step / float(sweep_steps)
+        sweep_col = radar_round(
+            RADAR_CENTER_X + math.sin(sweep_angle) * RADAR_RADIUS_X * fraction
+        )
+        sweep_row = radar_round(
+            RADAR_CENTER_Y - math.cos(sweep_angle) * RADAR_RADIUS_Y * fraction
+        )
+        radar_put(screen, sweep_row, sweep_col, "*", colours, CYAN)
+
+    # Full crosshair, stopping before the inset cardinal letters.
+    for column in range(west_col + 1, east_col):
+        radar_put(screen, center_row, column, ".", colours, DIM_CYAN)
+    for row in range(north_row + 1, south_row):
+        radar_put(screen, row, center_col, ".", colours, DIM_CYAN)
+    radar_put(screen, center_row, center_col, "+", colours, BRIGHT_CYAN)
+
+    # Aircraft
+    for aircraft_index, aircraft in enumerate(visible):
+        row, column = project(
+            aircraft["bearing"], aircraft["distance"], state["range"]
+        )
+
+        occupied = {
+            (center_row, center_col),
+            (north_row, center_col),
+            (south_row, center_col),
+            (center_row, west_col),
+            (center_row, east_col),
+        }
+        if (row, column) in occupied:
             column += 1
+
         glyph = "@" if aircraft_index == state["selected"] else "*"
         glyph_colour = YELLOW if aircraft_index == state["selected"] else WHITE
         radar_put(screen, row, column, glyph, colours, glyph_colour)
+
         if state["labels"] and RADAR_PANEL_TOP <= row <= RADAR_PANEL_BOTTOM:
-            label_max = RADAR_PANEL_RIGHT - 1
-            east_cardinal = radar_round(RADAR_CENTER_X + RADAR_RADIUS_X)
-            if row == RADAR_CENTER_ROW and column < east_cardinal:
-                label_max = east_cardinal - 2
-            put(screen, row - 1, column + 2, aircraft["name"][:8], colours,
+            name = aircraft["name"][:8]
+
+            # Visually separate target and label. Prefer the right side.
+            if column + 2 + len(name) <= east_col - 1:
+                label_col = column + 2
+            else:
+                label_col = max(west_col + 2, column - len(name) - 2)
+
+            put(
+                screen,
+                row - 1,
+                label_col,
+                name,
+                colours,
                 YELLOW if aircraft_index == state["selected"] else CYAN,
-                RADAR_PANEL_LEFT + 1, label_max)
+                RADAR_PANEL_LEFT + 1,
+                RADAR_PANEL_RIGHT - 1,
+            )
 
-    # Restore cardinal markers if a nearby callsign label crossed one.
-    radar_put(screen, radar_round(RADAR_CENTER_Y - RADAR_RADIUS_Y),
-              radar_round(RADAR_CENTER_X), "N", colours, BRIGHT_CYAN)
-    radar_put(screen, RADAR_CENTER_ROW,
-              radar_round(RADAR_CENTER_X + RADAR_RADIUS_X), "E",
-              colours, BRIGHT_CYAN)
-    radar_put(screen, radar_round(RADAR_CENTER_Y + RADAR_RADIUS_Y),
-              radar_round(RADAR_CENTER_X), "S", colours, BRIGHT_CYAN)
-    radar_put(screen, RADAR_CENTER_ROW,
-              radar_round(RADAR_CENTER_X - RADAR_RADIUS_X), "W",
-              colours, BRIGHT_CYAN)
+    # Cardinals last so rings, sweep and labels never swallow them.
+    radar_put(screen, north_row, center_col, "N", colours, BRIGHT_CYAN)
+    radar_put(screen, south_row, center_col, "S", colours, BRIGHT_CYAN)
+    radar_put(screen, center_row, west_col, "W", colours, BRIGHT_CYAN)
+    radar_put(screen, center_row, east_col, "E", colours, BRIGHT_CYAN)
 
+    # Selected-aircraft panel. Narrow but intentionally airy.
     selected = visible[state["selected"]] if visible else None
-    put(screen, 2, DETAILS_LEFT + 2, "SELECTED AIRCRAFT", colours, CYAN)
-    if selected is None:
-        put(screen, 3, DETAILS_LEFT + 2, "-- NONE --", colours, WHITE)
-    else:
-        selected_item = selected["item"]
-        selected_icao = str(selected_item.get("hex", selected_item.get("icao", "?")))[:6]
-        selected_altitude = "GND" if is_ground(selected_item) else value_text(selected_item, "alt_baro") + " FT"
-        detail_column = DETAILS_LEFT + 2
-        put(screen, 3, detail_column, selected["name"][:16], colours, YELLOW)
-        put(screen, 4, detail_column, "ICAO   " + selected_icao, colours, WHITE)
-        put(screen, 5, detail_column, "ALT    " + selected_altitude, colours, WHITE)
-        put(screen, 6, detail_column, "SPD    " + value_text(selected_item, "gs") + " KT", colours, WHITE)
-        put(screen, 7, detail_column, "HDG    " + value_text(selected_item, "track") + " DEG", colours, WHITE)
-        put(screen, 8, detail_column, "RNG    %.1f NM" % selected["distance"], colours, WHITE)
-        put(screen, 9, detail_column, "AGE    " + age_text(selected_item), colours, WHITE)
-        put(screen, 10, detail_column, "V/S    " + vertical_speed_text(selected_item) + " FT/MIN", colours, WHITE)
-        put(screen, 11, detail_column, "TYPE   ---  SQK  ----", colours, WHITE)
-        put(screen, 12, detail_column, "GROUND " + ("YES" if is_ground(selected_item) else "NO"), colours, WHITE)
+    detail_col = DETAILS_LEFT + 1
+    put(screen, 2, detail_col, "SELECTED", colours, CYAN)
 
-    put(screen, 14, 2, "CALL        ALT    SPD    HDG    RNG    AGE    ICAO    V/S", colours, BRIGHT_CYAN)
-    for row_offset in range(6):
-        row = 15 + row_offset
-        if row_offset >= len(visible):
-            continue
+    if selected is None:
+        put(screen, 4, detail_col, "-- NONE --", colours, WHITE)
+    else:
+        item = selected["item"]
+        icao = str(item.get("hex", item.get("icao", "?")))[:6]
+        altitude = "GND" if is_ground(item) else value_text(item, "alt_baro")
+
+        put(screen, 3, detail_col, selected["name"][:18], colours, YELLOW)
+        put(screen, 4, detail_col, "-" * 17, colours, DIM_CYAN)
+
+        details = (
+            (6, "ICAO", icao),
+            (7, "ALT", altitude + (" FT" if altitude != "GND" else "")),
+            (8, "SPD", value_text(item, "gs") + " KT"),
+            (9, "HDG", value_text(item, "track") + " DEG"),
+            (10, "RNG", "%.1f NM" % selected["distance"]),
+            (11, "AGE", age_text(item)),
+            (12, "V/S", vertical_speed_text(item)),
+            (13, "TYPE", "---"),
+            (14, "SQK", "----"),
+        )
+        for row, label, value in details:
+            put(screen, row - 1, detail_col, label, colours, CYAN)
+            put(screen, row - 1, detail_col + 6, value, colours, WHITE)
+
+    # Aircraft table below the enlarged radar.
+    put(
+        screen,
+        16,
+        2,
+        "CALL        ALT     SPD    HDG    RNG   AGE   ICAO    V/S",
+        colours,
+        BRIGHT_CYAN,
+    )
+
+    for row_offset in range(min(3, len(visible))):
+        row = 17 + row_offset
         aircraft = visible[row_offset]
         item = aircraft["item"]
         altitude = "GND" if is_ground(item) else value_text(item, "alt_baro")
         icao = str(item.get("hex", item.get("icao", "?")))[:6]
-        line = "% -11s %7s %6s %6s %6s %6s %8s %5s" % (
+        line = "%-11s %7s %6s %6s %6.1f %5s %7s %6s" % (
             aircraft["name"][:10],
             altitude,
             value_text(item, "gs"),
             value_text(item, "track"),
-            str(int(round(aircraft["distance"]))),
+            aircraft["distance"],
             age_text(item),
             icao,
             vertical_speed_text(item),
         )
         if row_offset == state["selected"]:
             line = ">" + line[:78]
-        put(screen, row, 1, line, colours, YELLOW if row_offset == state["selected"] else WHITE)
+        put(
+            screen,
+            row,
+            1,
+            line,
+            colours,
+            YELLOW if row_offset == state["selected"] else WHITE,
+        )
 
-    status = state["error"] or (str(len(visible)) + " aircraft | refresh 2s | labels " +
-                                 ("CALL" if state["labels"] else "OFF") + " | ground " +
-                                 ("ON" if state["ground"] else "OFF"))
+    status = state["error"] or (
+        str(len(visible))
+        + " aircraft | refresh 2s | labels "
+        + ("CALL" if state["labels"] else "OFF")
+        + " | ground "
+        + ("ON" if state["ground"] else "OFF")
+    )
     if state["paused"]:
-        status = "PAUSED - " + status
-    put(screen, 20, 2, status[:76], colours, RED if state["error"] else CYAN)
-    footer = "J/K SELECT | +/- ZOOM | 1-4 RANGE | L LABELS | G GROUND | H HELP | Q QUIT"
-    put(screen, 22, 2, footer, colours, CYAN)
-    for offset in (0, 2, 13, 15, 24, 26, 36, 47, 58, 67):
-        put(screen, 22, 2 + offset, footer[offset], colours, YELLOW)
+        status = "PAUSED | " + status
+    put(
+        screen,
+        20,
+        2,
+        status[:76],
+        colours,
+        RED if state["error"] else CYAN,
+    )
+
+    footer = (
+        "J/K SELECT | +/- ZOOM | 1-4 RANGE | L LABELS | "
+        "G GROUND | H HELP | Q QUIT"
+    )
+    put(screen, 22, 2, footer[:76], colours, WHITE)
+
+    for key_text in ("J/K", "+/-", "1-4", "L", "G", "H", "Q"):
+        position = footer.find(key_text)
+        if position >= 0:
+            put(screen, 22, 2 + position, key_text, colours, YELLOW)
 
     output = ESC + "2J" + ESC + "H"
     output += screen_output(screen, colours)
     bbs.rwrite(output)
-
 
 def show_help(source, state):
     # Replace the radar/details area without changing the dashboard footprint.
@@ -408,29 +512,49 @@ def main():
         "ground": False,
         "paused": False,
         "error": "",
+        "sweep_deg": 0.0,
     }
+
+    DATA_REFRESH_SECONDS = 2.0
+    SWEEP_STEP_DEGREES = 30.0
+
     next_refresh = 0.0
-    dirty = True
     reload_now = True
+    redraw_now = True
 
     while True:
         now = time.monotonic()
+
+        # Refresh ADS-B data every two seconds. Advance the cosmetic sweep
+        # exactly once per real data refresh, since Mystic's embedded Python
+        # path does not reliably display timer-only animation frames.
         if reload_now or (not state["paused"] and now >= next_refresh):
             source, state["error"] = read_aircraft()
-            next_refresh = now + 2.0
+            state["sweep_deg"] = (
+                state.get("sweep_deg", 0.0) + SWEEP_STEP_DEGREES
+            ) % 360.0
+            next_refresh = now + DATA_REFRESH_SECONDS
             reload_now = False
-            dirty = True
-        if dirty:
-            draw_screen(source, state)
-            dirty = False
+            redraw_now = True
 
+        # Draw only when something meaningful changed.
+        if redraw_now:
+            draw_screen(source, state)
+            redraw_now = False
+
+        # Preserve the known-good Mystic input path.
         if bbs.keypressed:
             key, extended = bbs.getkey()
             running, changed, requested_reload = handle_key(key, state, source)
             if not running:
                 break
-            dirty = dirty or changed
-            reload_now = reload_now or requested_reload
+
+            if requested_reload:
+                reload_now = True
+
+            if changed:
+                redraw_now = True
+
         time.sleep(0.05)
 
 
