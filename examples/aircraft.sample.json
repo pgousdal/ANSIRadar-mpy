@@ -1,0 +1,25 @@
+{
+  "now": 1700000000,
+  "messages": 3,
+  "aircraft": [
+    {
+      "hex": "4ca123",
+      "flight": "SAMPLE1 ",
+      "lat": 58.85,
+      "lon": 6.90,
+      "alt_baro": 12000,
+      "gs": 210,
+      "track": 135,
+      "seen": 1.2
+    },
+    {
+      "hex": "4ca456",
+      "flight": "SAMPLE2 ",
+      "lat": 58.40,
+      "lon": 6.45,
+      "alt_baro": "ground",
+      "gs": 0,
+      "seen": 0.8
+    }
+  ]
+}

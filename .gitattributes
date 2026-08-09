@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.mpy text eol=lf
+*.json text eol=lf
+*.png binary
+*.gif binary

@@ -1,0 +1,294 @@
+"""Small, standalone radar door for Mystic BBS 1.12 A48."""
+
+import json
+import math
+import time
+
+import mystic_bbs as bbs
+
+
+AIRCRAFT_FILE = "/home/mystic/doors/data/aircraft.json"
+RECEIVER_LATITUDE = 58.662
+RECEIVER_LONGITUDE = 6.717
+DEFAULT_RANGE_NM = 100
+EARTH_RADIUS_NM = 3440.065
+
+ESC = "\x1b["
+SCREEN_WIDTH = 79
+SCREEN_HEIGHT = 24
+RADAR_TOP = 0
+RADAR_BOTTOM = 13
+RADAR_CENTER_COL = 40
+RADAR_CENTER_ROW = 7
+RADAR_RADIUS_X = 35
+RADAR_RADIUS_Y = 5
+
+
+def numeric(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def read_aircraft():
+    """Read a fresh snapshot, returning a safe error for bad source data."""
+    try:
+        with open(AIRCRAFT_FILE, "r") as source:
+            document = json.load(source)
+    except (IOError, OSError, ValueError) as error:
+        return [], "data unavailable: " + str(error)
+
+    aircraft = document.get("aircraft") if isinstance(document, dict) else None
+    if not isinstance(aircraft, list):
+        return [], "data unavailable: no aircraft array"
+    return aircraft, ""
+
+
+def haversine_nm(latitude, longitude):
+    """Return distance from the receiver using a compact haversine form."""
+    lat1 = math.radians(RECEIVER_LATITUDE)
+    lat2 = math.radians(latitude)
+    delta_lat = math.radians(latitude - RECEIVER_LATITUDE)
+    delta_lon = math.radians(longitude - RECEIVER_LONGITUDE)
+    sine_lat = math.sin(delta_lat / 2.0)
+    sine_lon = math.sin(delta_lon / 2.0)
+    value = sine_lat * sine_lat + math.cos(lat1) * math.cos(lat2) * sine_lon * sine_lon
+    return 2.0 * EARTH_RADIUS_NM * math.atan2(math.sqrt(value), math.sqrt(1.0 - value))
+
+
+def bearing_deg(latitude, longitude):
+    lat1 = math.radians(RECEIVER_LATITUDE)
+    lat2 = math.radians(latitude)
+    delta_lon = math.radians(longitude - RECEIVER_LONGITUDE)
+    y_value = math.sin(delta_lon) * math.cos(lat2)
+    x_value = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(delta_lon)
+    return (math.atan2(y_value, x_value) * 180.0 / math.pi + 360.0) % 360.0
+
+
+def aircraft_name(item):
+    callsign = item.get("flight")
+    if isinstance(callsign, str) and callsign.strip():
+        return callsign.strip()
+    for field in ("hex", "icao"):
+        value = item.get(field)
+        if value is not None and str(value):
+            return str(value)
+    return "unknown"
+
+
+def is_ground(item):
+    return str(item.get("alt_baro", "")).lower() == "ground" or bool(item.get("ground"))
+
+
+def prepare_aircraft(source, range_nm, include_ground):
+    visible = []
+    for item in source:
+        if not isinstance(item, dict) or (not include_ground and is_ground(item)):
+            continue
+        latitude = numeric(item.get("lat"))
+        longitude = numeric(item.get("lon"))
+        if latitude is None or longitude is None:
+            continue
+        if latitude < -90.0 or latitude > 90.0 or longitude < -180.0 or longitude > 180.0:
+            continue
+        distance = haversine_nm(latitude, longitude)
+        if distance > range_nm:
+            continue
+        visible.append({
+            "item": item,
+            "name": aircraft_name(item),
+            "distance": distance,
+            "bearing": bearing_deg(latitude, longitude),
+        })
+    visible.sort(key=lambda aircraft: aircraft["distance"])
+    return visible
+
+
+def project(bearing, distance, range_nm):
+    angle = math.radians(bearing)
+    fraction = distance / range_nm if range_nm else 0.0
+    column = int(round(RADAR_CENTER_COL + math.sin(angle) * RADAR_RADIUS_X * fraction))
+    row = int(round(RADAR_CENTER_ROW - math.cos(angle) * RADAR_RADIUS_Y * fraction))
+    return row, column
+
+
+def put(screen, row, column, text):
+    if row < 0 or row >= SCREEN_HEIGHT or column < 1 or column > SCREEN_WIDTH:
+        return
+    start = column - 1
+    available = SCREEN_WIDTH - start
+    screen[row][start:start + available] = list(str(text)[:available])
+
+
+def value_text(item, field, digits=0):
+    value = numeric(item.get(field))
+    if value is None:
+        return "?"
+    if digits:
+        return ("%." + str(digits) + "f") % value
+    return str(int(round(value)))
+
+
+def age_text(item):
+    value = numeric(item.get("seen"))
+    if value is None:
+        value = numeric(item.get("seen_pos"))
+    if value is None:
+        return "?"
+    return str(max(0, int(round(value)))) + "s"
+
+
+def draw_screen(source, state):
+    visible = prepare_aircraft(source, state["range"], state["ground"])
+    if visible:
+        state["selected"] %= len(visible)
+    else:
+        state["selected"] = 0
+
+    screen = [list(" " * SCREEN_WIDTH) for unused in range(SCREEN_HEIGHT)]
+    put(screen, 0, 2, "MYSTIC RADAR")
+    put(screen, 0, 64, str(state["range"]) + " NM")
+    put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL, "*")
+    for ring_bearing in range(0, 360, 45):
+        ring_row, ring_column = project(ring_bearing, state["range"], state["range"])
+        put(screen, ring_row, ring_column, ".")
+    for cross_offset in range(-2, 3):
+        put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL + cross_offset * 2, "+")
+        put(screen, RADAR_CENTER_ROW + cross_offset, RADAR_CENTER_COL, "+")
+    put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL, "*")
+    put(screen, RADAR_CENTER_ROW - RADAR_RADIUS_Y, RADAR_CENTER_COL, "N")
+    put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL + RADAR_RADIUS_X, "E")
+    put(screen, RADAR_CENTER_ROW + RADAR_RADIUS_Y, RADAR_CENTER_COL, "S")
+    put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL - RADAR_RADIUS_X, "W")
+
+    for aircraft_index, aircraft in enumerate(visible):
+        row, column = project(aircraft["bearing"], aircraft["distance"], state["range"])
+        glyph = "@" if aircraft_index == state["selected"] else ">"
+        put(screen, row, column, glyph)
+        if state["labels"] and row >= RADAR_TOP and row <= RADAR_BOTTOM:
+            put(screen, row, column + 2, aircraft["name"][:8])
+
+    put(screen, 14, 2, "CALL       ALT    SPD  HDG  RNG  AGE")
+    for row_offset in range(6):
+        row = 15 + row_offset
+        if row_offset >= len(visible):
+            continue
+        aircraft = visible[row_offset]
+        item = aircraft["item"]
+        altitude = "GND" if is_ground(item) else value_text(item, "alt_baro")
+        line = "% -10s %5s %5s %4s %4s %4s" % (
+            aircraft["name"][:10],
+            altitude,
+            value_text(item, "gs"),
+            value_text(item, "track"),
+            str(int(round(aircraft["distance"]))),
+            age_text(item),
+        )
+        if row_offset == state["selected"]:
+            line = ">" + line[:78]
+        put(screen, row, 1, line)
+
+    status = state["error"] or (str(len(visible)) + " aircraft in range")
+    if state["paused"]:
+        status = "PAUSED - " + status
+    put(screen, 21, 2, status[:76])
+    put(screen, 22, 2, "Q quit  H/? help  J/K select  +/- zoom  1-4 range  L labels  G ground  P pause  R reload")
+
+    output = ESC + "2J" + ESC + "H"
+    output += "\r\n".join("".join(line) for line in screen)
+    bbs.rwrite(output)
+
+
+def show_help(source, state):
+    # Keep help inside the same safe 79-column screen.
+    screen = [list(" " * SCREEN_WIDTH) for unused in range(SCREEN_HEIGHT)]
+    put(screen, 2, 3, "MYSTIC RADAR CONTROLS")
+    put(screen, 4, 3, "Q       quit to Mystic")
+    put(screen, 5, 3, "H / ?   show this help")
+    put(screen, 6, 3, "J / K   select next / previous aircraft")
+    put(screen, 7, 3, "+ / =   zoom in       -   zoom out")
+    put(screen, 8, 3, "1 2 3 4 range: 25 / 50 / 100 / 200 nm")
+    put(screen, 9, 3, "L       toggle radar labels")
+    put(screen, 10, 3, "G       toggle ground aircraft")
+    put(screen, 11, 3, "P       pause refresh  R       reload now")
+    put(screen, 13, 3, "Press any key to return")
+    bbs.rwrite(ESC + "2J" + ESC + "H" + "\r\n".join("".join(line) for line in screen))
+    while True:
+        time.sleep(0.05)
+        if bbs.keypressed:
+            bbs.getkey()
+            return
+
+
+def handle_key(key, state, source):
+    if isinstance(key, bytes):
+        key = key.decode("ascii", "ignore")
+    if not isinstance(key, str) or not key:
+        return True, False, False
+    key = key[:1].lower()
+    if key == "q":
+        return False, False, False
+    if key in ("h", "?"):
+        show_help(source, state)
+        return True, True, False
+    if key == "j":
+        state["selected"] += 1
+    elif key == "k":
+        state["selected"] -= 1
+    elif key in ("+", "="):
+        state["range"] = min(200, state["range"] * 2)
+    elif key == "-":
+        state["range"] = max(25, state["range"] // 2)
+    elif key in ("1", "2", "3", "4"):
+        state["range"] = {"1": 25, "2": 50, "3": 100, "4": 200}[key]
+    elif key == "l":
+        state["labels"] = not state["labels"]
+    elif key == "g":
+        state["ground"] = not state["ground"]
+    elif key == "p":
+        state["paused"] = not state["paused"]
+    elif key == "r":
+        return True, True, True
+    else:
+        return True, False, False
+    return True, True, False
+
+
+def main():
+    source = []
+    state = {
+        "range": DEFAULT_RANGE_NM,
+        "selected": 0,
+        "labels": True,
+        "ground": False,
+        "paused": False,
+        "error": "",
+    }
+    next_refresh = 0.0
+    dirty = True
+    reload_now = True
+
+    while True:
+        now = time.monotonic()
+        if reload_now or (not state["paused"] and now >= next_refresh):
+            source, state["error"] = read_aircraft()
+            next_refresh = now + 2.0
+            reload_now = False
+            dirty = True
+        if dirty:
+            draw_screen(source, state)
+            dirty = False
+
+        if bbs.keypressed:
+            key, extended = bbs.getkey()
+            running, changed, requested_reload = handle_key(key, state, source)
+            if not running:
+                break
+            dirty = dirty or changed
+            reload_now = reload_now or requested_reload
+        time.sleep(0.05)
+
+
+main()
