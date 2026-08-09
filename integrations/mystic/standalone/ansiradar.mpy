@@ -16,12 +16,21 @@ EARTH_RADIUS_NM = 3440.065
 ESC = "\x1b["
 SCREEN_WIDTH = 79
 SCREEN_HEIGHT = 24
-RADAR_TOP = 0
+RADAR_TOP = 2
 RADAR_BOTTOM = 13
 RADAR_CENTER_COL = 40
-RADAR_CENTER_ROW = 7
+RADAR_CENTER_ROW = 8
 RADAR_RADIUS_X = 35
 RADAR_RADIUS_Y = 5
+
+# Keep terminal styling in one place so the screen remains readable in source.
+RESET = ESC + "0m"
+BRIGHT_CYAN = ESC + "96m"
+CYAN = ESC + "36m"
+DIM_CYAN = ESC + "2;36m"
+WHITE = ESC + "37m"
+YELLOW = ESC + "93m"
+RED = ESC + "91m"
 
 
 def numeric(value):
@@ -114,12 +123,34 @@ def project(bearing, distance, range_nm):
     return row, column
 
 
-def put(screen, row, column, text):
+def put(screen, row, column, text, colour_grid=None, colour=None):
     if row < 0 or row >= SCREEN_HEIGHT or column < 1 or column > SCREEN_WIDTH:
         return
     start = column - 1
     available = SCREEN_WIDTH - start
-    screen[row][start:start + available] = list(str(text)[:available])
+    text = str(text)[:available]
+    screen[row][start:start + available] = list(text)
+    if colour_grid is not None and colour is not None:
+        colour_grid[row][start:start + available] = [colour] * len(text)
+
+
+def screen_output(screen, colours):
+    rows = []
+    for row, colour_row in zip(screen, colours):
+        rendered = []
+        previous = None
+        for character, colour in zip(row, colour_row):
+            if colour != previous:
+                if previous is not None:
+                    rendered.append(RESET)
+                if colour is not None:
+                    rendered.append(colour)
+                previous = colour
+            rendered.append(character)
+        if previous is not None:
+            rendered.append(RESET)
+        rows.append("".join(rendered))
+    return "\r\n".join(rows)
 
 
 def value_text(item, field, digits=0):
@@ -148,29 +179,43 @@ def draw_screen(source, state):
         state["selected"] = 0
 
     screen = [list(" " * SCREEN_WIDTH) for unused in range(SCREEN_HEIGHT)]
-    put(screen, 0, 2, "MYSTIC RADAR")
-    put(screen, 0, 64, str(state["range"]) + " NM")
-    put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL, "*")
-    for ring_bearing in range(0, 360, 45):
-        ring_row, ring_column = project(ring_bearing, state["range"], state["range"])
-        put(screen, ring_row, ring_column, ".")
+    colours = [[None] * SCREEN_WIDTH for unused in range(SCREEN_HEIGHT)]
+
+    put(screen, 0, 2, "ANSIRADAR / MYSTIC", colours, BRIGHT_CYAN)
+    put(screen, 0, 62, "RANGE " + str(state["range"]) + "NM", colours, BRIGHT_CYAN)
+    put(screen, 1, 2, "AIRCRAFT " + str(len(visible)).rjust(3), colours, WHITE)
+    put(screen, 1, 22, "SOURCE ADS-B SNAPSHOT", colours, WHITE)
+    put(screen, 1, 61, "MODE LIVE", colours, CYAN)
+    put(screen, 2, 2, "+" + "-" * 73 + "+", colours, DIM_CYAN)
+    for scope_row in range(RADAR_TOP + 1, RADAR_BOTTOM + 1):
+        put(screen, scope_row, 1, "|", colours, DIM_CYAN)
+        put(screen, scope_row, SCREEN_WIDTH, "|", colours, DIM_CYAN)
+
+    # Four rings use terminal-friendly elliptical coordinates to look round.
+    for ring_fraction in (0.25, 0.5, 0.75, 1.0):
+        for ring_bearing in range(0, 360, 30):
+            ring_row, ring_column = project(
+                ring_bearing, state["range"] * ring_fraction, state["range"]
+            )
+            put(screen, ring_row, ring_column, ".", colours, DIM_CYAN)
     for cross_offset in range(-2, 3):
-        put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL + cross_offset * 2, "+")
-        put(screen, RADAR_CENTER_ROW + cross_offset, RADAR_CENTER_COL, "+")
-    put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL, "*")
-    put(screen, RADAR_CENTER_ROW - RADAR_RADIUS_Y, RADAR_CENTER_COL, "N")
-    put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL + RADAR_RADIUS_X, "E")
-    put(screen, RADAR_CENTER_ROW + RADAR_RADIUS_Y, RADAR_CENTER_COL, "S")
-    put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL - RADAR_RADIUS_X, "W")
+        put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL + cross_offset * 2, "+", colours, DIM_CYAN)
+        put(screen, RADAR_CENTER_ROW + cross_offset, RADAR_CENTER_COL, "+", colours, DIM_CYAN)
+    put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL, "+", colours, BRIGHT_CYAN)
+    put(screen, RADAR_CENTER_ROW - RADAR_RADIUS_Y, RADAR_CENTER_COL, "N", colours, BRIGHT_CYAN)
+    put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL + RADAR_RADIUS_X, "E", colours, BRIGHT_CYAN)
+    put(screen, RADAR_CENTER_ROW + RADAR_RADIUS_Y, RADAR_CENTER_COL, "S", colours, BRIGHT_CYAN)
+    put(screen, RADAR_CENTER_ROW, RADAR_CENTER_COL - RADAR_RADIUS_X, "W", colours, BRIGHT_CYAN)
 
     for aircraft_index, aircraft in enumerate(visible):
         row, column = project(aircraft["bearing"], aircraft["distance"], state["range"])
-        glyph = "@" if aircraft_index == state["selected"] else ">"
-        put(screen, row, column, glyph)
+        glyph = "@" if aircraft_index == state["selected"] else "*"
+        glyph_colour = YELLOW if aircraft_index == state["selected"] else WHITE
+        put(screen, row, column, glyph, colours, glyph_colour)
         if state["labels"] and row >= RADAR_TOP and row <= RADAR_BOTTOM:
-            put(screen, row, column + 2, aircraft["name"][:8])
+            put(screen, row, column + 2, aircraft["name"][:8], colours, YELLOW if aircraft_index == state["selected"] else CYAN)
 
-    put(screen, 14, 2, "CALL       ALT    SPD  HDG  RNG  AGE")
+    put(screen, 14, 2, "CALL       ALT    SPD  HDG  RNG  AGE  ICAO", colours, BRIGHT_CYAN)
     for row_offset in range(6):
         row = 15 + row_offset
         if row_offset >= len(visible):
@@ -178,43 +223,46 @@ def draw_screen(source, state):
         aircraft = visible[row_offset]
         item = aircraft["item"]
         altitude = "GND" if is_ground(item) else value_text(item, "alt_baro")
-        line = "% -10s %5s %5s %4s %4s %4s" % (
+        icao = str(item.get("hex", item.get("icao", "?")))[:6]
+        line = "% -10s %5s %5s %4s %4s %4s %6s" % (
             aircraft["name"][:10],
             altitude,
             value_text(item, "gs"),
             value_text(item, "track"),
             str(int(round(aircraft["distance"]))),
             age_text(item),
+            icao,
         )
         if row_offset == state["selected"]:
             line = ">" + line[:78]
-        put(screen, row, 1, line)
+        put(screen, row, 1, line, colours, YELLOW if row_offset == state["selected"] else WHITE)
 
     status = state["error"] or (str(len(visible)) + " aircraft in range")
     if state["paused"]:
         status = "PAUSED - " + status
-    put(screen, 21, 2, status[:76])
-    put(screen, 22, 2, "Q quit  H/? help  J/K select  +/- zoom  1-4 range  L labels  G ground  P pause  R reload")
+    put(screen, 21, 2, status[:76], colours, RED if state["error"] else CYAN)
+    put(screen, 22, 2, "J/K select | +/- zoom | 1-4 range | L labels | G ground | H help | Q quit", colours, BRIGHT_CYAN)
 
     output = ESC + "2J" + ESC + "H"
-    output += "\r\n".join("".join(line) for line in screen)
+    output += screen_output(screen, colours)
     bbs.rwrite(output)
 
 
 def show_help(source, state):
-    # Keep help inside the same safe 79-column screen.
+    # Keep help inside the radar/table area; no extra terminal rows are used.
     screen = [list(" " * SCREEN_WIDTH) for unused in range(SCREEN_HEIGHT)]
-    put(screen, 2, 3, "MYSTIC RADAR CONTROLS")
-    put(screen, 4, 3, "Q       quit to Mystic")
-    put(screen, 5, 3, "H / ?   show this help")
-    put(screen, 6, 3, "J / K   select next / previous aircraft")
-    put(screen, 7, 3, "+ / =   zoom in       -   zoom out")
-    put(screen, 8, 3, "1 2 3 4 range: 25 / 50 / 100 / 200 nm")
-    put(screen, 9, 3, "L       toggle radar labels")
-    put(screen, 10, 3, "G       toggle ground aircraft")
-    put(screen, 11, 3, "P       pause refresh  R       reload now")
-    put(screen, 13, 3, "Press any key to return")
-    bbs.rwrite(ESC + "2J" + ESC + "H" + "\r\n".join("".join(line) for line in screen))
+    colours = [[None] * SCREEN_WIDTH for unused in range(SCREEN_HEIGHT)]
+    put(screen, 2, 3, "+-------------------- RADAR HELP --------------------+", colours, BRIGHT_CYAN)
+    put(screen, 4, 5, "Q       quit to Mystic", colours, WHITE)
+    put(screen, 5, 5, "H / ?   show this help", colours, WHITE)
+    put(screen, 6, 5, "J / K   select next / previous aircraft", colours, WHITE)
+    put(screen, 7, 5, "+ / =   zoom in       -   zoom out", colours, WHITE)
+    put(screen, 8, 5, "1 2 3 4 range: 25 / 50 / 100 / 200 nm", colours, WHITE)
+    put(screen, 9, 5, "L       toggle radar labels", colours, WHITE)
+    put(screen, 10, 5, "G       toggle ground aircraft", colours, WHITE)
+    put(screen, 11, 5, "P       pause refresh  R       reload now", colours, WHITE)
+    put(screen, 13, 5, "Press any key to return", colours, YELLOW)
+    bbs.rwrite(ESC + "2J" + ESC + "H" + screen_output(screen, colours))
     while True:
         time.sleep(0.05)
         if bbs.keypressed:
