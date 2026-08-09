@@ -21,10 +21,11 @@ RADAR_BOTTOM = 12
 RADAR_LEFT = 1
 RADAR_RIGHT = 39
 DETAILS_LEFT = 41
-RADAR_CENTER_COL = 20
+RADAR_DIVIDER = 40
+RADAR_CENTER_COL = 21
 RADAR_CENTER_ROW = 7
-RADAR_RADIUS_X = 10
-RADAR_RADIUS_Y = 4
+RADAR_RADIUS_X = 17
+RADAR_RADIUS_Y = 5
 
 # Keep terminal styling in one place so the screen remains readable in source.
 RESET = ESC + "0m"
@@ -206,7 +207,7 @@ def draw_screen(source, state):
     for scope_row in range(RADAR_TOP, RADAR_BOTTOM + 1):
         put(screen, scope_row, RADAR_LEFT, "|", colours, DIM_CYAN)
         put(screen, scope_row, RADAR_RIGHT, "|", colours, DIM_CYAN)
-        put(screen, scope_row, 40, "|", colours, DIM_CYAN)
+        put(screen, scope_row, RADAR_DIVIDER, "|", colours, DIM_CYAN)
 
     # Two dotted elliptical rings fit the compact terminal scope.
     for ring_fraction in (0.5, 1.0):
@@ -254,21 +255,24 @@ def draw_screen(source, state):
         colours, BRIGHT_CYAN, RADAR_LEFT, RADAR_RIGHT)
 
     selected = visible[state["selected"]] if visible else None
-    put(screen, 2, 43, "SELECTED AIRCRAFT", colours, CYAN)
+    put(screen, 2, DETAILS_LEFT + 2, "SELECTED AIRCRAFT", colours, CYAN)
     if selected is None:
-        put(screen, 4, 43, "-- NONE --", colours, WHITE)
+        put(screen, 3, DETAILS_LEFT + 2, "-- NONE --", colours, WHITE)
     else:
         selected_item = selected["item"]
         selected_icao = str(selected_item.get("hex", selected_item.get("icao", "?")))[:6]
         selected_altitude = "GND" if is_ground(selected_item) else value_text(selected_item, "alt_baro") + " FT"
-        put(screen, 4, 43, selected["name"][:16], colours, YELLOW)
-        put(screen, 6, 43, "ICAO  " + selected_icao, colours, WHITE)
-        put(screen, 7, 43, "ALT   " + selected_altitude, colours, WHITE)
-        put(screen, 8, 43, "SPD   " + value_text(selected_item, "gs") + " KT", colours, WHITE)
-        put(screen, 9, 43, "HDG   " + value_text(selected_item, "track") + " DEG", colours, WHITE)
-        put(screen, 10, 43, "RNG   %.1f NM" % selected["distance"], colours, WHITE)
-        put(screen, 11, 43, "AGE   " + age_text(selected_item), colours, WHITE)
-        put(screen, 12, 43, "V/S   " + vertical_speed_text(selected_item) + " FT/MIN", colours, WHITE)
+        detail_column = DETAILS_LEFT + 2
+        put(screen, 3, detail_column, selected["name"][:16], colours, YELLOW)
+        put(screen, 4, detail_column, "ICAO   " + selected_icao, colours, WHITE)
+        put(screen, 5, detail_column, "ALT    " + selected_altitude, colours, WHITE)
+        put(screen, 6, detail_column, "SPD    " + value_text(selected_item, "gs") + " KT", colours, WHITE)
+        put(screen, 7, detail_column, "HDG    " + value_text(selected_item, "track") + " DEG", colours, WHITE)
+        put(screen, 8, detail_column, "RNG    %.1f NM" % selected["distance"], colours, WHITE)
+        put(screen, 9, detail_column, "AGE    " + age_text(selected_item), colours, WHITE)
+        put(screen, 10, detail_column, "V/S    " + vertical_speed_text(selected_item) + " FT/MIN", colours, WHITE)
+        put(screen, 11, detail_column, "TYPE   ---  SQK  ----", colours, WHITE)
+        put(screen, 12, detail_column, "GROUND " + ("YES" if is_ground(selected_item) else "NO"), colours, WHITE)
 
     put(screen, 14, 2, "CALL        ALT    SPD    HDG    RNG    AGE    ICAO    V/S", colours, BRIGHT_CYAN)
     for row_offset in range(6):
@@ -299,7 +303,10 @@ def draw_screen(source, state):
     if state["paused"]:
         status = "PAUSED - " + status
     put(screen, 20, 2, status[:76], colours, RED if state["error"] else CYAN)
-    put(screen, 22, 2, "J/K SELECT | +/- ZOOM | 1-4 RANGE | L LABELS | G GROUND | H HELP | Q QUIT", colours, BRIGHT_CYAN)
+    footer = "J/K SELECT | +/- ZOOM | 1-4 RANGE | L LABELS | G GROUND | H HELP | Q QUIT"
+    put(screen, 22, 2, footer, colours, CYAN)
+    for offset in (0, 2, 13, 15, 24, 26, 36, 47, 58, 67):
+        put(screen, 22, 2 + offset, footer[offset], colours, YELLOW)
 
     output = ESC + "2J" + ESC + "H"
     output += screen_output(screen, colours)
