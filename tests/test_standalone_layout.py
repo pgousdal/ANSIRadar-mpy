@@ -31,15 +31,16 @@ def test_output_source_is_ascii_and_screen_is_safe_area():
     assert values["SCREEN_WIDTH"] == 79
     assert values["SCREEN_HEIGHT"] == 24
     assert values["RADAR_TOP"] == 2
-    assert values["RADAR_BOTTOM"] == 12
+    assert values["RADAR_BOTTOM"] == 13
     assert values["RADAR_LEFT"] == 1
     assert values["RADAR_RIGHT"] == 39
     assert values["DETAILS_LEFT"] == 41
     assert values["RADAR_DIVIDER"] == 40
-    assert values["RADAR_CENTER_COL"] == 21
-    assert values["RADAR_CENTER_ROW"] == 7
-    assert values["RADAR_RADIUS_X"] == 17
-    assert values["RADAR_RADIUS_Y"] == 5
+    assert values["RADAR_CENTER_COL"] == 25
+    assert values["RADAR_CENTER_ROW"] == 7.5
+    assert values["RADAR_CENTER_SCREEN_ROW"] == 8
+    assert values["RADAR_RADIUS_X"] == 13
+    assert values["RADAR_RADIUS_Y"] == 5.5
 
 
 def test_literal_put_rows_never_target_row_25_or_later():
