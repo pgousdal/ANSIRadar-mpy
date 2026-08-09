@@ -6,6 +6,7 @@ not import, package, or reuse the ANSIRadar Python package.
 ## Runtime Contract
 
 - Target: Mystic BBS 1.12 A48, Linux x86-64, Mystic GZ Python 3.
+- Artifact version: `0.1.0` (pre-1.0 standalone release line).
 - Terminal: nominal 80x25; printable drawing area is columns 1-79 and rows
   1-24.
 - Input: readsb/dump1090-style `/home/mystic/doors/data/aircraft.json`.

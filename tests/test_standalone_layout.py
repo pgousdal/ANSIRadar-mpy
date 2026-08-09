@@ -28,6 +28,7 @@ def test_output_source_is_ascii_and_screen_is_safe_area():
     raw = TARGET.read_bytes()
     raw.decode("ascii")
     values = constants()
+    assert values["__version__"] == "0.1.0"
     assert values["SCREEN_WIDTH"] == 79
     assert values["SCREEN_HEIGHT"] == 24
     assert values["RADAR_RING_COUNT"] == 4
@@ -78,6 +79,8 @@ def test_static_text_lines_fit_the_printable_screen_width():
 
 def test_renderer_uses_fixed_width_rows_and_no_cleanup_exit():
     source = TARGET.read_text(encoding="ascii")
+    assert "# SPDX-License-Identifier: MIT" in source
+    assert "# Copyright (c) 2026 ANSIRadar contributors" in source
     assert "[list(\" \" * SCREEN_WIDTH) for unused in range(SCREEN_HEIGHT)]" in source
     assert "screen_output(screen, colours)" in source
     assert "output += screen_output(screen, colours)" in source

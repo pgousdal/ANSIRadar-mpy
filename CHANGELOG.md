@@ -15,10 +15,10 @@ releases are created.
 
 ### Changed
 
-- Enlarged the Mystic radar scope and dashboard geometry for improved 80x25
-  screen utilization, including selected-aircraft panel and layout changes.
+- Enlarged the Mystic radar scope for improved 80x25 screen utilization, with
+  revised selected-aircraft/detail geometry and dashboard layout.
 
 ### Fixed
 
-- Corrected validation and CI coverage, including the authoritative pytest
-  suite and current standalone layout contracts.
+- Corrected stale layout tests for the enlarged radar and updated CI to execute
+  the full pytest suite.
