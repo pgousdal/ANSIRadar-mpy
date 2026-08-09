@@ -92,9 +92,9 @@ def test_dashboard_geometry_and_clipping_are_explicit():
     assert "RADAR_PANEL_WIDTH = RADAR_PANEL_RIGHT - RADAR_PANEL_LEFT + 1" in source
     assert "RADAR_PANEL_HEIGHT = RADAR_PANEL_BOTTOM - RADAR_PANEL_TOP + 1" in source
     assert "RADAR_CENTER_X = RADAR_PANEL_LEFT + RADAR_PANEL_WIDTH / 2.0" in source
-    assert "RADAR_CENTER_Y = RADAR_PANEL_TOP + RADAR_PANEL_HEIGHT / 2.0" in source
+    assert "RADAR_CENTER_Y = RADAR_PANEL_TOP + (RADAR_PANEL_HEIGHT - 1) / 2.0" in source
     assert "RADAR_RADIUS_X = RADAR_PANEL_WIDTH / 2.0 - 2.0" in source
-    assert "RADAR_RADIUS_Y = RADAR_PANEL_HEIGHT / 2.0 - 1.0" in source
+    assert "RADAR_RADIUS_Y = (RADAR_PANEL_HEIGHT - 1) / 2.0" in source
     assert "radar_put(screen, ring_row, ring_column" in source
     assert "for ring_number in range(1, RADAR_RING_COUNT + 1)" in source
     assert "ring_bearing = 360.0 * ring_sample / RADAR_RING_SAMPLES" in source

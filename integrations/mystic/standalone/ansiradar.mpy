@@ -23,10 +23,10 @@ RADAR_PANEL_BOTTOM = 14
 RADAR_PANEL_WIDTH = RADAR_PANEL_RIGHT - RADAR_PANEL_LEFT + 1
 RADAR_PANEL_HEIGHT = RADAR_PANEL_BOTTOM - RADAR_PANEL_TOP + 1
 RADAR_CENTER_X = RADAR_PANEL_LEFT + RADAR_PANEL_WIDTH / 2.0
-RADAR_CENTER_Y = RADAR_PANEL_TOP + RADAR_PANEL_HEIGHT / 2.0
+RADAR_CENTER_Y = RADAR_PANEL_TOP + (RADAR_PANEL_HEIGHT - 1) / 2.0
 RADAR_RADIUS_X = RADAR_PANEL_WIDTH / 2.0 - 2.0
-RADAR_RADIUS_Y = RADAR_PANEL_HEIGHT / 2.0 - 1.0
-RADAR_CENTER_ROW = int(round(RADAR_CENTER_Y))
+RADAR_RADIUS_Y = (RADAR_PANEL_HEIGHT - 1) / 2.0
+RADAR_CENTER_ROW = int(math.floor(RADAR_CENTER_Y + 0.5))
 RADAR_RING_COUNT = 4
 RADAR_RING_SAMPLES = 12
 DETAILS_LEFT = 41
@@ -128,9 +128,13 @@ def project(bearing, distance, range_nm):
     """Project a range/bearing into the panel-derived radar ellipse."""
     angle = math.radians(bearing)
     fraction = distance / range_nm if range_nm else 0.0
-    column = int(round(RADAR_CENTER_X + math.sin(angle) * RADAR_RADIUS_X * fraction))
-    row = int(round(RADAR_CENTER_Y - math.cos(angle) * RADAR_RADIUS_Y * fraction))
+    column = radar_round(RADAR_CENTER_X + math.sin(angle) * RADAR_RADIUS_X * fraction)
+    row = radar_round(RADAR_CENTER_Y - math.cos(angle) * RADAR_RADIUS_Y * fraction)
     return row, column
+
+
+def radar_round(value):
+    return int(math.floor(value + 0.5))
 
 
 def put(screen, row, column, text, colour_grid=None, colour=None,
@@ -234,25 +238,25 @@ def draw_screen(source, state):
             )
             radar_put(screen, ring_row, ring_column, ".", colours, DIM_CYAN)
 
-    crosshair_left = int(round(RADAR_CENTER_X - RADAR_RADIUS_X + 1.0))
-    crosshair_right = int(round(RADAR_CENTER_X + RADAR_RADIUS_X - 1.0))
-    crosshair_top = int(round(RADAR_CENTER_Y - RADAR_RADIUS_Y + 1.0))
-    crosshair_bottom = int(round(RADAR_CENTER_Y + RADAR_RADIUS_Y - 1.0))
+    crosshair_left = radar_round(RADAR_CENTER_X - RADAR_RADIUS_X + 1.0)
+    crosshair_right = radar_round(RADAR_CENTER_X + RADAR_RADIUS_X - 1.0)
+    crosshair_top = radar_round(RADAR_CENTER_Y - RADAR_RADIUS_Y + 1.0)
+    crosshair_bottom = radar_round(RADAR_CENTER_Y + RADAR_RADIUS_Y - 1.0)
     for column in range(crosshair_left, crosshair_right + 1):
         radar_put(screen, RADAR_CENTER_ROW, column, ".", colours, DIM_CYAN)
     for row in range(crosshair_top, crosshair_bottom + 1):
-        radar_put(screen, row, int(round(RADAR_CENTER_X)), ".", colours, DIM_CYAN)
-    radar_put(screen, RADAR_CENTER_ROW, int(round(RADAR_CENTER_X)), "+",
+        radar_put(screen, row, radar_round(RADAR_CENTER_X), ".", colours, DIM_CYAN)
+    radar_put(screen, RADAR_CENTER_ROW, radar_round(RADAR_CENTER_X), "+",
               colours, BRIGHT_CYAN)
 
     for aircraft_index, aircraft in enumerate(visible):
         row, column = project(aircraft["bearing"], aircraft["distance"], state["range"])
         cardinal_points = (
-            (RADAR_CENTER_ROW, int(round(RADAR_CENTER_X))),
-            (int(round(RADAR_CENTER_Y - RADAR_RADIUS_Y)), int(round(RADAR_CENTER_X))),
-            (int(round(RADAR_CENTER_Y + RADAR_RADIUS_Y)), int(round(RADAR_CENTER_X))),
-            (RADAR_CENTER_ROW, int(round(RADAR_CENTER_X - RADAR_RADIUS_X))),
-            (RADAR_CENTER_ROW, int(round(RADAR_CENTER_X + RADAR_RADIUS_X))),
+            (RADAR_CENTER_ROW, radar_round(RADAR_CENTER_X)),
+            (radar_round(RADAR_CENTER_Y - RADAR_RADIUS_Y), radar_round(RADAR_CENTER_X)),
+            (radar_round(RADAR_CENTER_Y + RADAR_RADIUS_Y), radar_round(RADAR_CENTER_X)),
+            (RADAR_CENTER_ROW, radar_round(RADAR_CENTER_X - RADAR_RADIUS_X)),
+            (RADAR_CENTER_ROW, radar_round(RADAR_CENTER_X + RADAR_RADIUS_X)),
         )
         if (row, column) in cardinal_points:
             column += 1
@@ -261,7 +265,7 @@ def draw_screen(source, state):
         radar_put(screen, row, column, glyph, colours, glyph_colour)
         if state["labels"] and RADAR_PANEL_TOP <= row <= RADAR_PANEL_BOTTOM:
             label_max = RADAR_PANEL_RIGHT - 1
-            east_cardinal = int(round(RADAR_CENTER_X + RADAR_RADIUS_X))
+            east_cardinal = radar_round(RADAR_CENTER_X + RADAR_RADIUS_X)
             if row == RADAR_CENTER_ROW and column < east_cardinal:
                 label_max = east_cardinal - 2
             put(screen, row - 1, column + 2, aircraft["name"][:8], colours,
@@ -269,15 +273,15 @@ def draw_screen(source, state):
                 RADAR_PANEL_LEFT + 1, label_max)
 
     # Restore cardinal markers if a nearby callsign label crossed one.
-    radar_put(screen, int(round(RADAR_CENTER_Y - RADAR_RADIUS_Y)),
-              int(round(RADAR_CENTER_X)), "N", colours, BRIGHT_CYAN)
+    radar_put(screen, radar_round(RADAR_CENTER_Y - RADAR_RADIUS_Y),
+              radar_round(RADAR_CENTER_X), "N", colours, BRIGHT_CYAN)
     radar_put(screen, RADAR_CENTER_ROW,
-              int(round(RADAR_CENTER_X + RADAR_RADIUS_X)), "E",
+              radar_round(RADAR_CENTER_X + RADAR_RADIUS_X), "E",
               colours, BRIGHT_CYAN)
-    radar_put(screen, int(round(RADAR_CENTER_Y + RADAR_RADIUS_Y)),
-              int(round(RADAR_CENTER_X)), "S", colours, BRIGHT_CYAN)
+    radar_put(screen, radar_round(RADAR_CENTER_Y + RADAR_RADIUS_Y),
+              radar_round(RADAR_CENTER_X), "S", colours, BRIGHT_CYAN)
     radar_put(screen, RADAR_CENTER_ROW,
-              int(round(RADAR_CENTER_X - RADAR_RADIUS_X)), "W",
+              radar_round(RADAR_CENTER_X - RADAR_RADIUS_X), "W",
               colours, BRIGHT_CYAN)
 
     selected = visible[state["selected"]] if visible else None
